@@ -1,0 +1,168 @@
+---
+title: "EDS 223 HW 2: Exploring patterns of environmental justice"
+author: "Emalia Partlow"
+warning: false
+---
+
+```{r}
+library(tidyverse)
+library(tmap)
+library(sf)
+library(here)
+library(janitor)
+library(knitr)
+```
+
+```{r}
+# Read in the data
+ejscreen <- st_read(here("data", "ejscreen","EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb")) |> 
+    clean_names()
+
+holc <- st_read(here("data", "mapping-inequality","mapping-inequality-los-angeles.json")) |> 
+    clean_names()
+
+crashes <- read_csv(here("data", "SWITRS_LA","crashes.csv")) |> 
+           clean_names() |> 
+           as_tibble() |> 
+           drop_na(c('point_x', 'point_y')) |> # Remove NAs from x and y columns
+           st_as_sf(coords = c("point_x", "point_y"), crs = 3857) # Create a geometry column with x and y
+```
+
+```{r}
+# Check CRS of each dataframe
+st_crs(ejscreen) # Uses CRS 3857
+st_crs(holc) # Uses WGS 84 CRS
+st_crs(crashes) # Uses CRS 3857
+```
+
+```{r}
+# If ejscreen and holc don't have the same CRS,  print a warning and convert holc to match the ejscreen CRS 
+if(st_crs(ejscreen) != st_crs(holc)){
+  warning("Coordinate refrence systems do not match")
+  holc <- st_transform(holc, crs = st_crs(ejscreen))
+}
+```
+
+```{r}
+# Double check The CRS conversion worked
+if(st_crs(ejscreen) == st_crs(holc)){
+  print("It's a match")
+} else {
+  print("Still not a match")
+}
+```
+
+
+## Part 1: Legacy of redlining in current environmental (in)justice
+
+```{r}
+# Create a color pallette for the first map's holc grade
+holc_grade <- c('A' = '#386641', 'B' = '#023e8a', 'C' = '#ffc300', 'D' = '#c1121f')
+```
+
+```{r}
+# Create a map of historical redlining neighborhoods
+tm_shape(holc) +
+    tm_polygons(
+        fill = 'grade',
+        fill.scale = tm_scale(values = holc_grade),
+        fill.legend = tm_legend(title = 'HOLC Grade',
+                            position = tm_pos_out('right', 'center')) 
+    ) +
+tm_compass(position = c('right', 'top')) +
+tm_scalebar(position = c('right', 'bottom')) +
+tm_title('Historical redlining neighborhoods in LA') +
+tm_legend(position = tm_pos_out('right', 'center')) +
+tm_basemap('OpenStreetMap')
+```
+
+```{r}
+# Join holc and ejscreen dataframes spatially
+ej_holc <- st_join(ejscreen, holc) |> # Left join, st_intersects
+  filter((cnty_name == 'Los Angeles County'))
+```
+
+```{r}
+# Create a summary table of the percentage of census block groups that fall within each holc grade
+summary_holc <- ej_holc |> 
+  st_drop_geometry() |> 
+  group_by(grade) |> 
+  summarise(total_grade = n()) |> # Creates column 'total_grade' with total counts for each grade
+  mutate('Percent census block groups within grade' = (total_grade/sum(total_grade)) * 100) |> 
+  rename(
+    'HOLC grade' = 'grade',
+    'Total HOLC grade count' = 'total_grade'
+  )
+```
+
+```{r}
+#| label: tbl-holc-summary
+#| tbl-cap: "Percentage of census block groups that fall within each HOLC grade"
+
+kable(summary_holc)
+```
+
+```{r}
+# Calculate mean percent low income for each holc grade
+mean_low_income <- ej_holc |> 
+  st_drop_geometry() |> 
+  group_by(grade) |> 
+  summarise(mean_lowincpct = mean(lowincpct))
+
+# Visualize
+ggplot(
+  data = mean_low_income,
+  mapping = aes(
+    x = grade,
+    y = mean_lowincpct
+  )
+) +
+geom_col() +
+theme_bw() +
+labs(x = 'HOLC Grade', y = 'Mean percent low income', title = 'Percent low income by HOLC grade')
+```
+
+```{r}
+# Calculate mean percentile for Particulate Matter 2.5 for each holc grade
+mean_pm25 <- ej_holc |> 
+  st_drop_geometry() |> 
+  drop_na(grade) |> # There were no values of p_pm25 for NA grades, so dropped NAs from grade column
+  group_by(grade) |> 
+  summarise(mean_p_pm25 = mean(p_pm25))
+
+# Visualize
+ggplot(
+  data = mean_pm25,
+  mapping = aes(
+    x = grade,
+    y = mean_p_pm25
+  )
+) +
+geom_col() +
+theme_bw() +
+labs(x = 'HOLC Grade', y = 'Mean percentile of particulate matter 2.5', title = 'Percent particulate matter 2.5 by HOLC grade')
+```
+
+```{r}
+# Calculate mean percentile for low life expectancy for each holc grade
+mean_low_life_exp <- ej_holc |> 
+  st_drop_geometry() |> 
+  group_by(grade) |> 
+  summarise(mean_lifeexppct = mean(lifeexppct, na.rm = TRUE))
+
+# Visualize
+ggplot(
+  data = mean_low_life_exp,
+  mapping = aes(
+    x = grade,
+    y = mean_lifeexppct
+  )
+) +
+geom_col() +
+theme_bw() +
+labs(x = 'HOLC Grade', y = 'Mean low life expectancy percentage', title = 'Percent low life expectancy by HOLC grade')
+```
+
+Percentages of low income people, low life expectancy, and particulate matter 2.5 are the lowest in areas with an HOLC grade of A, meaning they were ranked as having the best perceived safety for real estate investment. Those three variables are highest in HOLC grade D locations, that were considered hazardous. This suggests that a history of redlining in an area has socioeconomic and environmental consequences that continue to negatively impact the the people that live there.
+
+## Part 2: Legacy of redlining in pedstrian and bike accidents
