@@ -20,14 +20,14 @@ ejscreen <- st_read(here("data", "ejscreen","EJSCREEN_2023_BG_StatePct_with_AS_C
 
 holc <- st_read(here("data", "mapping-inequality","mapping-inequality-los-angeles.json")) |> 
     clean_names() |> 
-    st_transform(crs = st_crs(ejscreen))
+    st_transform(crs = st_crs(ejscreen)) # Transform the CRS to match ejscreen
 
 crashes <- read_csv(here("data", "SWITRS_LA","crashes.csv")) |> 
            clean_names() |> 
            as_tibble() |> 
            drop_na(c('point_x', 'point_y')) |> # Remove NAs from x and y columns
-           st_as_sf(coords = c("point_x", "point_y"), crs = 4326) |> # Create a geometry column with x and y, need crs to be 4326 to recognize as lat/long
-           st_transform(crs = st_crs(ejscreen))
+           st_as_sf(coords = c("point_x", "point_y"), crs = 4326) |> # Create a geometry column with x and y. Use CRS 4326 to recognize x and y as lat and long coordinates
+           st_transform(crs = st_crs(ejscreen)) # Transform back to a CRS that matches ejscreen
 ```
 
 ```{r}
@@ -35,7 +35,7 @@ crashes <- read_csv(here("data", "SWITRS_LA","crashes.csv")) |>
 if((st_crs(ejscreen) == st_crs(holc)) & (st_crs(ejscreen) == st_crs(crashes))){
   print("It's a match")
 } else {
-  warning("Coordinate refrence systems do not match")
+  warning("Coordinate refrence systems do not match") # Include a warning if the dataframes don't have matching CRS
 }
 ```
 
@@ -43,7 +43,7 @@ if((st_crs(ejscreen) == st_crs(holc)) & (st_crs(ejscreen) == st_crs(crashes))){
 ## Part 1: Legacy of redlining in current environmental (in)justice
 
 ```{r}
-# Create a color pallette for the first map's holc grade
+# Create a color palette for the first map's holc grade
 holc_grade <- c('A' = '#386641', 'B' = '#023e8a', 'C' = '#ffc300', 'D' = '#c1121f')
 ```
 
@@ -51,8 +51,8 @@ holc_grade <- c('A' = '#386641', 'B' = '#023e8a', 'C' = '#ffc300', 'D' = '#c1121
 # Create a map of historical redlining neighborhoods
 tm_shape(holc) +
     tm_polygons(
-        fill = 'grade',
-        fill.scale = tm_scale(values = holc_grade),
+        fill = 'grade', # Fill polygons based on holc grade
+        fill.scale = tm_scale(values = holc_grade), # Use palette created in previous step
         fill.legend = tm_legend(title = 'HOLC Grade',
                             position = tm_pos_out('right', 'center')) 
     ) +
@@ -63,20 +63,22 @@ tm_legend(position = tm_pos_out('right', 'center')) +
 tm_basemap('OpenStreetMap')
 ```
 
+The map displays neighborhoods and their assigned HOLC grades, from A (highest perceived safety for real estate investment in green) to D (most hazardous in red).
+
 ```{r}
 # Join holc and ejscreen dataframes spatially
 ej_holc <- st_join(ejscreen, holc) |> # Left join, st_intersects
-  filter((cnty_name == 'Los Angeles County'))
+  filter((cnty_name == 'Los Angeles County')) # Filter for LA county
 ```
 
 ```{r}
-# Create a summary table of the percentage of census block groups that fall within each holc grade
+# Create a summary dataframe of the percentage of census block groups that fall within each holc grade
 summary_census <- ej_holc |> 
-  st_drop_geometry() |> 
-  group_by(grade) |> 
+  st_drop_geometry() |> # Drop the geometry column
+  group_by(grade) |> # Group by holc grade
   summarise(total_grade = n()) |> # Creates column 'total_grade' with total counts for each grade
-  mutate('Percent of census block groups within grade' = (total_grade/sum(total_grade)) * 100) |> 
-  rename(
+  mutate('Percent of census block groups within grade' = (total_grade/sum(total_grade)) * 100) |> # Add a column with the percentage
+  rename( # Rename columns
     'HOLC grade' = 'grade',
     'Total count of census block groups within grade' = 'total_grade'
   )
@@ -86,26 +88,27 @@ summary_census <- ej_holc |>
 #| label: tbl-census-summary
 #| tbl-cap: "Percentage of census block groups that fall within each HOLC grade"
 
+# Create a table of the summary_census data
 kable(summary_census)
 ```
 
 ```{r}
-# Create summary table with means of 3 variables
+# Create summary dataframe with means of 3 variables
 three_means <- ej_holc |> 
-  st_drop_geometry() |> 
+  st_drop_geometry() |> # Drop the geometry column
   group_by(grade) |> # Group by holc grade
   drop_na(grade) |> # Drop NAs from grade column
   summarise(
     mean_lowincpct = mean(lowincpct, na.rm = TRUE), # Mean percent low income
     mean_p_pm25 = mean(p_pm25, na.rm = TRUE), # Mean percentile for Particulate Matter 2.5
-    mean_lifeexppct = mean(lifeexppct, na.rm = TRUE) # Mean percentile for low life expectancy
+    mean_lifeexppct = mean(lifeexppct, na.rm = TRUE) # Mean low life expectancy percent
     ) 
 ```
 
 ```{r}
 # Visualize low income
 ggplot(
-  data = mean_low_income,
+  data = three_means,
   mapping = aes(
     x = grade,
     y = mean_lowincpct
@@ -117,7 +120,7 @@ labs(x = 'HOLC Grade', y = 'Mean percent low income', title = 'Percent low incom
 
 # Visualize PM 2.5
 ggplot(
-  data = mean_pm25,
+  data = three_means,
   mapping = aes(
     x = grade,
     y = mean_p_pm25
@@ -129,7 +132,7 @@ labs(x = 'HOLC Grade', y = 'Mean percentile of particulate matter 2.5', title = 
 
 # Visualize low life expectancy
 ggplot(
-  data = mean_low_life_exp,
+  data = three_means,
   mapping = aes(
     x = grade,
     y = mean_lifeexppct
@@ -140,7 +143,7 @@ theme_bw() +
 labs(x = 'HOLC Grade', y = 'Mean low life expectancy percentage', title = 'Percent low life expectancy by HOLC grade')
 ```
 
-Percentages of low income people, low life expectancy, and particulate matter 2.5 are the lowest in areas with an HOLC grade of A, meaning they were ranked as having the best perceived safety for real estate investment. Those three variables are highest in HOLC grade D locations, that were considered hazardous. This suggests that a history of redlining in an area has socioeconomic and environmental consequences that continue to negatively impact the the people that live there.
+Percentages of low income people, low life expectancy, and particulate matter 2.5 are the lowest in areas with a HOLC grade of A, meaning they were ranked as having the best perceived safety for real estate investment. Those three variables are highest in HOLC grade D locations, that were considered hazardous. This suggests that a history of redlining in an area has socioeconomic and environmental consequences that continue to negatively impact the the people that live there.
 
 ## Part 2: Legacy of redlining in pedstrian and bike accidents
 
@@ -152,10 +155,10 @@ crashes_holc <- st_join(crashes, holc) |> # Left join, st_intersects
 ```
 
 ```{r}
-# Create a summary table of the percentage of pedestrian and bicycle accidents that fall within each holc grade
+# Create a summary dataframe of the percentage of pedestrian and bicycle accidents that fall within each holc grade
 summary_crashes <- crashes_holc |> 
-  st_drop_geometry() |> 
-  group_by(grade) |> 
+  st_drop_geometry() |> # Drop geometry column
+  group_by(grade) |> # Group by holc grade
   summarise(total_grade = n()) |> # Creates column 'total_grade' with total counts for each grade
   mutate('Percent of pedestrian and bicycle accidents' = (total_grade/sum(total_grade)) * 100) |> 
   rename(
@@ -168,6 +171,7 @@ summary_crashes <- crashes_holc |>
 #| label: tbl-crashes-summary
 #| tbl-cap: "Percentage of pedestrian and bicycle accidents that fall within each HOLC grade"
 
+# Create a table of the summary_crashes data
 kable(summary_crashes)
 ```
 

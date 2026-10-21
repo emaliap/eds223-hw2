@@ -17,6 +17,7 @@ How does a history of redlining affect a communities socioeconomic, environmenta
 │   └── mapping-inequality
 │   └── SWITRS_LA
 ├── hw2.qmd
+├── hw2.pdf
 └── README.md
 ```
 
