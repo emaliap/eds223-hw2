@@ -71,22 +71,22 @@ ej_holc <- st_join(ejscreen, holc) |> # Left join, st_intersects
 
 ```{r}
 # Create a summary table of the percentage of census block groups that fall within each holc grade
-summary_holc <- ej_holc |> 
+summary_census <- ej_holc |> 
   st_drop_geometry() |> 
   group_by(grade) |> 
   summarise(total_grade = n()) |> # Creates column 'total_grade' with total counts for each grade
-  mutate('Percent census block groups within grade' = (total_grade/sum(total_grade)) * 100) |> 
+  mutate('Percent of census block groups within grade' = (total_grade/sum(total_grade)) * 100) |> 
   rename(
     'HOLC grade' = 'grade',
-    'Total HOLC grade count' = 'total_grade'
+    'Total count of census block groups within grade' = 'total_grade'
   )
 ```
 
 ```{r}
-#| label: tbl-holc-summary
+#| label: tbl-census-summary
 #| tbl-cap: "Percentage of census block groups that fall within each HOLC grade"
 
-kable(summary_holc)
+kable(summary_census)
 ```
 
 ```{r}
@@ -146,12 +146,9 @@ Percentages of low income people, low life expectancy, and particulate matter 2.
 
 ```{r}
 # Join holc and crashes dataframes spatially
-crashes_holc <- st_join(holc, crashes) |> # Left join, st_intersects
+crashes_holc <- st_join(crashes, holc) |> # Left join, st_intersects
   select(grade, pedestrian_accident, bicycle_accident) |> 
-  mutate(
-    pedestrian_accident = ifelse(pedestrian_accident == 'Y', 1, 0),
-    bicycle_accident = ifelse(bicycle_accident == 'Y', 1, 0)
-    )
+  filter(pedestrian_accident == 'Y' | bicycle_accident == 'Y') # Filter for rows where there were pedestrian or bicycle accidents
 ```
 
 ```{r}
@@ -159,14 +156,34 @@ crashes_holc <- st_join(holc, crashes) |> # Left join, st_intersects
 summary_crashes <- crashes_holc |> 
   st_drop_geometry() |> 
   group_by(grade) |> 
-  summarise(
-    total_ped = sum(pedestrian_accident), # Creates column 'total_ped' with the sum of pedestrian accidents
-    total_bike = sum(bicycle_accident) # Creates column 'totalbike' with the sum of bike accidents
-  ) |> 
-  mutate('Percent bicycle accidents within grade' = (total_grade/sum(total_grade)) * 100) |> 
+  summarise(total_grade = n()) |> # Creates column 'total_grade' with total counts for each grade
+  mutate('Percent of pedestrian and bicycle accidents' = (total_grade/sum(total_grade)) * 100) |> 
   rename(
     'HOLC grade' = 'grade',
-    'Total HOLC grade count' = 'total_grade'
+    'Total count of pedestrian and bicycle accidents' = 'total_grade'
   )
 ```
 
+```{r}
+#| label: tbl-crashes-summary
+#| tbl-cap: "Percentage of pedestrian and bicycle accidents that fall within each HOLC grade"
+
+kable(summary_crashes)
+```
+
+
+```{r}
+# Visualize crashes
+ggplot(
+  data = summary_crashes,
+  mapping = aes(
+    x = `HOLC grade`,
+    y = `Percent of pedestrian and bicycle accidents`
+  )
+) +
+geom_col() +
+theme_bw() +
+labs(x = 'HOLC Grade', y = 'Percent of pedestrian and bicycle accidents', title = 'Percentage of pedestrian and bicycle accidents that fall within each HOLC grade')
+```
+
+Percentage of pedestrian and bicycle accidents are highest in grade C, with a vlaue of 27.27%, second highest in grade D, with a vlaue of 13.69%, and lowest in grade A, with a value of 1.09%. This suggests that pedestrians and bikers may be more vulnerable to accidents when they are in areas with a history of redlining.
