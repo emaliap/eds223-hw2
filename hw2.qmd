@@ -19,36 +19,23 @@ ejscreen <- st_read(here("data", "ejscreen","EJSCREEN_2023_BG_StatePct_with_AS_C
     clean_names()
 
 holc <- st_read(here("data", "mapping-inequality","mapping-inequality-los-angeles.json")) |> 
-    clean_names()
+    clean_names() |> 
+    st_transform(crs = st_crs(ejscreen))
 
 crashes <- read_csv(here("data", "SWITRS_LA","crashes.csv")) |> 
            clean_names() |> 
            as_tibble() |> 
            drop_na(c('point_x', 'point_y')) |> # Remove NAs from x and y columns
-           st_as_sf(coords = c("point_x", "point_y"), crs = 3857) # Create a geometry column with x and y
+           st_as_sf(coords = c("point_x", "point_y"), crs = 4326) |> # Create a geometry column with x and y, need crs to be 4326 to recognize as lat/long
+           st_transform(crs = st_crs(ejscreen))
 ```
 
 ```{r}
-# Check CRS of each dataframe
-st_crs(ejscreen) # Uses CRS 3857
-st_crs(holc) # Uses WGS 84 CRS
-st_crs(crashes) # Uses CRS 3857
-```
-
-```{r}
-# If ejscreen and holc don't have the same CRS,  print a warning and convert holc to match the ejscreen CRS 
-if(st_crs(ejscreen) != st_crs(holc)){
-  warning("Coordinate refrence systems do not match")
-  holc <- st_transform(holc, crs = st_crs(ejscreen))
-}
-```
-
-```{r}
-# Double check The CRS conversion worked
-if(st_crs(ejscreen) == st_crs(holc)){
+# Double check all dataframe's CRS match
+if((st_crs(ejscreen) == st_crs(holc)) & (st_crs(ejscreen) == st_crs(crashes))){
   print("It's a match")
 } else {
-  print("Still not a match")
+  warning("Coordinate refrence systems do not match")
 }
 ```
 
@@ -103,13 +90,20 @@ kable(summary_holc)
 ```
 
 ```{r}
-# Calculate mean percent low income for each holc grade
-mean_low_income <- ej_holc |> 
+# Create summary table with means of 3 variables
+three_means <- ej_holc |> 
   st_drop_geometry() |> 
-  group_by(grade) |> 
-  summarise(mean_lowincpct = mean(lowincpct))
+  group_by(grade) |> # Group by holc grade
+  drop_na(grade) |> # Drop NAs from grade column
+  summarise(
+    mean_lowincpct = mean(lowincpct, na.rm = TRUE), # Mean percent low income
+    mean_p_pm25 = mean(p_pm25, na.rm = TRUE), # Mean percentile for Particulate Matter 2.5
+    mean_lifeexppct = mean(lifeexppct, na.rm = TRUE) # Mean percentile for low life expectancy
+    ) 
+```
 
-# Visualize
+```{r}
+# Visualize low income
 ggplot(
   data = mean_low_income,
   mapping = aes(
@@ -120,17 +114,8 @@ ggplot(
 geom_col() +
 theme_bw() +
 labs(x = 'HOLC Grade', y = 'Mean percent low income', title = 'Percent low income by HOLC grade')
-```
 
-```{r}
-# Calculate mean percentile for Particulate Matter 2.5 for each holc grade
-mean_pm25 <- ej_holc |> 
-  st_drop_geometry() |> 
-  drop_na(grade) |> # There were no values of p_pm25 for NA grades, so dropped NAs from grade column
-  group_by(grade) |> 
-  summarise(mean_p_pm25 = mean(p_pm25))
-
-# Visualize
+# Visualize PM 2.5
 ggplot(
   data = mean_pm25,
   mapping = aes(
@@ -141,16 +126,8 @@ ggplot(
 geom_col() +
 theme_bw() +
 labs(x = 'HOLC Grade', y = 'Mean percentile of particulate matter 2.5', title = 'Percent particulate matter 2.5 by HOLC grade')
-```
 
-```{r}
-# Calculate mean percentile for low life expectancy for each holc grade
-mean_low_life_exp <- ej_holc |> 
-  st_drop_geometry() |> 
-  group_by(grade) |> 
-  summarise(mean_lifeexppct = mean(lifeexppct, na.rm = TRUE))
-
-# Visualize
+# Visualize low life expectancy
 ggplot(
   data = mean_low_life_exp,
   mapping = aes(
@@ -166,3 +143,30 @@ labs(x = 'HOLC Grade', y = 'Mean low life expectancy percentage', title = 'Perce
 Percentages of low income people, low life expectancy, and particulate matter 2.5 are the lowest in areas with an HOLC grade of A, meaning they were ranked as having the best perceived safety for real estate investment. Those three variables are highest in HOLC grade D locations, that were considered hazardous. This suggests that a history of redlining in an area has socioeconomic and environmental consequences that continue to negatively impact the the people that live there.
 
 ## Part 2: Legacy of redlining in pedstrian and bike accidents
+
+```{r}
+# Join holc and crashes dataframes spatially
+crashes_holc <- st_join(holc, crashes) |> # Left join, st_intersects
+  select(grade, pedestrian_accident, bicycle_accident) |> 
+  mutate(
+    pedestrian_accident = ifelse(pedestrian_accident == 'Y', 1, 0),
+    bicycle_accident = ifelse(bicycle_accident == 'Y', 1, 0)
+    )
+```
+
+```{r}
+# Create a summary table of the percentage of pedestrian and bicycle accidents that fall within each holc grade
+summary_crashes <- crashes_holc |> 
+  st_drop_geometry() |> 
+  group_by(grade) |> 
+  summarise(
+    total_ped = sum(pedestrian_accident), # Creates column 'total_ped' with the sum of pedestrian accidents
+    total_bike = sum(bicycle_accident) # Creates column 'totalbike' with the sum of bike accidents
+  ) |> 
+  mutate('Percent bicycle accidents within grade' = (total_grade/sum(total_grade)) * 100) |> 
+  rename(
+    'HOLC grade' = 'grade',
+    'Total HOLC grade count' = 'total_grade'
+  )
+```
+
